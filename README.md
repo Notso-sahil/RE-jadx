@@ -1,92 +1,131 @@
-# JADX AI MCP Server (Optimized Version)
+# JADX AI Agent: Zero-to-Hero Setup Guide
 
-An advanced, token-optimized Model Context Protocol (MCP) server that bridges AI coding agents (like Claude Desktop or Cursor) with the [JADX](https://github.com/skylot/jadx) reverse engineering suite.
+This guide covers how to set up the JADX AI Agent on a completely fresh machine. This system bridges an AI coding assistant with JADX, allowing the AI to autonomously reverse-engineer Android APKs.
 
-This server acts as a bridge, allowing your AI to programmatically explore, decompile, search, and analyze Android APKs directly through JADX, without you needing to copy-paste code.
+---
 
-## 🚀 Features
+## 1. Prerequisites
+Before starting, ensure the following are installed on your machine:
+* **Java 11 or higher** (Required to run JADX)
+* **Python 3.10 or higher** (Required for the MCP server)
+* **Visual Studio Code** (VS Code)
+* **Google Cloud CLI** (For Vertex AI authentication)
 
-* **Token-Optimized Code Outlining**: Extract the structural skeleton of a Java class (methods, fields, imports) with method bodies stripped. Reduces AI token consumption by 70–95% during the discovery phase.
-* **Analysis Memory Engine**: A local SQLite/GZIP storage engine that allows the AI to persist its findings and summaries of classes. The AI can instantly recall its previous analysis without wasting tokens re-reading source code.
-* **Dynamic Tool Profiles**: Filter which tools the AI sees to prevent manifest bloat. Switch seamlessly between `minimal`, `discovery`, `analysis` (default), `refactor`, and `debug` profiles on the fly.
-* **LangSmith Observability**: (Optional) Fully integrated with LangSmith for zero-overhead asynchronous tracing. Track token usage, latency, and tool error rates automatically.
-* **Complete JADX Integration**: Access Smali, AndroidManifest.xml, Resources, Xrefs, search by keyword, and even interact with the JADX debugger.
+---
 
-## 📦 Installation
+## 2. Install JADX & The MCP Plugin
+1. Download the latest release of [JADX](https://github.com/skylot/jadx/releases).
+2. Launch the `jadx-gui` executable.
+3. Inside JADX GUI, go to **Plugins** -> **Install Plugin**.
+4. Install the **JADX MCP Plugin** (provide the path to the `.jar` or GitHub repository).
+5. Restart JADX GUI and open your target `.apk` file.
 
-### Prerequisites
-1. **Python 3.10+**
-2. **JADX GUI** installed with the AI MCP Plugin enabled.
+---
 
-### Setup
+## 3. Setup the Python MCP Server
+The Python server translates AI requests into JADX commands. Open a terminal in the `jadx-mcp-server` directory and run the following based on your OS:
 
-1. The MCP server code is located in the `jadx-mcp-server` folder.
-2. Open a terminal in that folder, create a virtual environment and install the dependencies:
-   ```bash
-   cd jadx-mcp-server
-   python -m venv .venv
-   
-   # Windows
-   .\.venv\Scripts\activate
-   # Linux/Mac
-   source .venv/bin/activate
-   
-   pip install -r requirements.txt
-   ```
-3. Edit the `.env` file at the root of the workspace (next to this README) and add your `LANGSMITH_API_KEY` (optional) to enable tracing.
-
-### Connecting to your AI Client
-
-You need to add the server to your AI's MCP configuration file (e.g., `claude_desktop_config.json` for Claude Desktop, or `mcp.json` for Cursor).
-
-**Example Configuration:**
-```json
-{
-  "mcpServers": {
-    "jadx-mcp-plugin": {
-      "command": "c:\\Users\\elite\\Desktop\\RE jadx\\jadx-mcp-server\\.venv\\Scripts\\python.exe",
-      "args": [
-        "c:\\Users\\elite\\Desktop\\RE jadx\\jadx-mcp-server\\jadx_mcp_server.py",
-        "--jadx-host", "127.0.0.1",
-        "--jadx-port", "8650"
-      ],
-      "env": {
-        "LANGSMITH_API_KEY": "your_langsmith_key_here"
-      }
-    }
-  }
-}
+### 🪟 Windows (PowerShell)
+```powershell
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
-## 🧠 The Optimal AI Workflow
+### 🐧 Linux (Bash)
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
 
-To get the most out of this tool and save API costs, use the following workflow when prompting your AI:
+### 🍏 macOS (Zsh/Bash)
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
 
-1. **Discovery**:
-   Ask the AI to use `get_package_tree` and `get_android_manifest` to understand the app's structure and permissions.
-2. **Skeleton Analysis**:
-   Instead of fetching a whole class, tell the AI to use `get_class_outline("com.example.MainActivity")`. This returns the class structure (methods and fields) while stripping the heavy method bodies.
-3. **Deep Inspection**:
-   Once the AI identifies a specific method of interest from the outline, it can use `get_method_by_name` to fetch just that method.
-4. **Memory Persistence**:
-   Instruct the AI: *"Save your findings on MainActivity to memory."* The AI will use `save_class_analysis`.
-5. **Recall**:
-   Later in the session, the AI can use `get_class_analysis` to retrieve its findings without needing to re-read the Java code.
+---
 
-## ⚙️ Configuration & Observability
+## 4. Authenticate Vertex AI
+To use powerful Google Gemini models via Vertex AI without hardcoding API keys, use Application Default Credentials (ADC).
 
-### Tool Profiles
-To minimize token waste in the tool manifest, the server hides niche tools (like the debugger or refactoring suite) by default. You or the AI can change this on the fly:
-* Call `set_tool_profile("debug")` to enable debugger tools.
-* Call `set_tool_profile("full")` to expose all 38 tools.
+### Step 4.1: Install Google Cloud CLI
+If you don't have the `gcloud` CLI installed, install it based on your OS:
 
-### Tracing (LangSmith)
-If `LANGSMITH_API_KEY` is provided in your `.env` or MCP config, all tool calls are logged to LangSmith under the project `jadx-mcp-server`. This includes latency, input/output, and estimated token counts.
+**🪟 Windows (PowerShell):**
+```powershell
+(New-Object Net.WebClient).DownloadFile("https://dl.google.com/dl/cloudsdk/channels/rapid/GoogleCloudSDKInstaller.exe", "$env:Temp\GoogleCloudSDKInstaller.exe")
+& $env:Temp\GoogleCloudSDKInstaller.exe
+```
 
-Even without LangSmith, you can ask the AI to call `get_server_stats()` to retrieve local, in-memory statistics about tool latency and usage.
+**🐧 Linux (Debian/Ubuntu):**
+```bash
+sudo apt-get install apt-transport-https ca-certificates gnupg curl
+curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg
+echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
+sudo apt-get update && sudo apt-get install google-cloud-cli
+```
 
-## 🛡️ Security Warning
-By default, the server expects to connect to JADX on `127.0.0.1`. If you run the MCP server in HTTP mode (`--http --host 0.0.0.0`), be aware that the connection is unauthenticated. Only expose the server on trusted networks.
+**🍏 macOS (Homebrew):**
+```bash
+brew install --cask google-cloud-sdk
+```
 
-Prompt to give in the chat:
-Begin the forensic analysis on the loaded APK. I want you to find the attacker's database URL or any API keys. If anything is encrypted, write a Python script to decrypt it based on the Java code
+### Step 4.2: Login
+Open your terminal and run:
+```bash
+gcloud auth application-default login
+```
+*A browser window will open. Log in with the Google account associated with your Google Cloud Project.*
+
+---
+
+## 5. Configure Continue.dev
+1. Open **VS Code** and install the **Continue.dev** extension.
+2. Open the Continue configuration file (Press `Ctrl+Shift+P` / `Cmd+Shift+P` -> Type `Continue: Open config.yaml`).
+3. Add your Vertex AI model and the MCP server exactly like this:
+
+```yaml
+models:
+  - name: Gemini 3.6 Flash (Vertex)
+    provider: vertexai
+    model: gemini-3.6-flash
+    projectId: YOUR_GOOGLE_CLOUD_PROJECT_ID
+    region: asia-south1
+    roles:
+      - chat
+      - edit
+      - apply
+
+mcpServers:
+  - name: jadx-mcp-plugin
+    # Windows path example (use python3 and / for Mac/Linux):
+    command: C:\path\to\jadx-mcp-server\.venv\Scripts\python.exe
+    args:
+      - C:\path\to\jadx-mcp-server\jadx_mcp_server.py
+```
+*Note: Ensure your `command` points to the `python` executable inside the `.venv` folder you created in Step 3.*
+
+---
+
+## 6. Using the Agent (Do's and Don'ts)
+
+Because Language Models are trained on standard programming tutorials, they often try to use standard terminal commands instead of the JADX tools. You must enforce strict boundaries.
+
+### ❌ The "Don'ts"
+* **NEVER allow the agent to run terminal commands to explore the project.** If the agent asks for permission to run commands like `find . -name "*.db"`, `ls -R`, or `grep`, **reject it**.
+* **Don't** let the agent download the source code of every class blindly without reviewing the outline first.
+
+### ✅ The "Do's"
+* **DO force the use of MCP tools.** Tell the agent: *"Do not use the terminal. Use the `jadx_search_methods` or `jadx_search_strings` tools to find what you are looking for."*
+* **DO use Investigation macros.** Ask the agent to run `jadx_investigate_apk("network")` or `"crypto"` to get a massive initial footprint instantly.
+* **DO use external memory.** If the chat gets too long, tell the agent: *"Save your open findings using `jadx_add_investigation_note`, then I will restart the chat."*
+
+---
+
+## 7. The Ultimate Starter Prompt
+Once your APK is open in JADX, and Continue.dev is connected to Vertex AI, paste this exact prompt into the chat to begin:
+
+> *Begin the forensic analysis on the loaded APK using your JADX MCP tools. I want you to find the attacker's database URL or any API keys. If anything is encrypted, write a Python script to decrypt it based on the Java code. Remember: You are strictly forbidden from running standard terminal commands like `find` or `grep`. You must exclusively use your built-in JADX tools (like `jadx_investigate_apk` and `jadx_search_strings`) to explore the APK.*

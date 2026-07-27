@@ -24,7 +24,18 @@ async def get_android_manifest() -> dict:
     MCP Tool: get_android_manifest
     Description: Extracts app configuration, permissions, and component declarations
     """
-    return await get_from_jadx_cached("manifest")
+    result = await get_from_jadx_cached("manifest")
+    
+    for key in ["content", "xml", "manifest"]:
+        if key in result and isinstance(result[key], str):
+            lines = result[key].split("\n")
+            if len(lines) > 500:
+                truncated = "\n".join(lines[:500])
+                warning = f"\n\n<!-- [SYSTEM WARNING]: AndroidManifest exceeds 500 lines (Total: {len(lines)}). It has been TRUNCATED. To explore specific components, use `jadx_get_manifest_component` (e.g. for activities, services, etc.) -->"
+                result[key] = truncated + warning
+            break
+            
+    return result
 
 
 async def get_manifest_component(component_type: str, only_exported: bool = False) -> dict:

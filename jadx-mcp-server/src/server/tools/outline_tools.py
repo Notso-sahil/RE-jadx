@@ -268,6 +268,9 @@ async def get_class_outline(class_name: str) -> dict:
     out_chars = len(outlined)
     reduction = round((1 - out_chars / max(orig_chars, 1)) * 100, 1)
 
+    from src.server.tools import class_tools
+    class_tools._outline_fetched.add(class_name)
+
     return {
         "class_name": class_name,
         "outline": outlined,

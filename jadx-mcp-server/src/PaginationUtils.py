@@ -34,7 +34,7 @@ class PaginationUtils:
 
     # Configuration constants
     DEFAULT_PAGE_SIZE = 100
-    MAX_PAGE_SIZE = 10000
+    MAX_PAGE_SIZE = 100
     MAX_OFFSET = 1000000
 
     @staticmethod
@@ -53,6 +53,8 @@ class PaginationUtils:
             Clamps values to [0, MAX_OFFSET] and [0, MAX_PAGE_SIZE]
         """
         offset = max(0, min(offset, PaginationUtils.MAX_OFFSET))
+        if count <= 0:
+            count = PaginationUtils.DEFAULT_PAGE_SIZE
         count = max(0, min(count, PaginationUtils.MAX_PAGE_SIZE))
         return offset, count
 

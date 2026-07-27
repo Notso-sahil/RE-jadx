@@ -34,6 +34,35 @@ logger = logging.getLogger("jadx-mcp-server.tracing")
 _ls_client = None
 _ls_project: str = "jadx-mcp-server"
 _tracing_enabled: bool = False
+_session_tokens: int = 0
+_daily_call_count: int = 0
+
+from collections import deque
+
+class RateLimiter:
+    def __init__(self, rpm_limit=15, safety_margin=1):
+        self.rpm_limit = rpm_limit - safety_margin
+        self.calls = deque()
+        self.lock = asyncio.Lock()
+        self.forced_wait_until = 0.0
+
+    async def acquire(self):
+        async with self.lock:
+            now = time.monotonic()
+            if now < self.forced_wait_until:
+                await asyncio.sleep(self.forced_wait_until - now)
+                now = time.monotonic()
+            while self.calls and self.calls[0] < now - 60:
+                self.calls.popleft()
+            if len(self.calls) >= self.rpm_limit:
+                await asyncio.sleep(60 - (now - self.calls[0]) + 0.1)
+                now = time.monotonic()
+            self.calls.append(now)
+
+    def register_429(self, retry_delay_seconds: float):
+        self.forced_wait_until = time.monotonic() + retry_delay_seconds
+
+rate_limiter = RateLimiter(rpm_limit=15)
 
 
 def _init_langsmith() -> None:
@@ -72,9 +101,14 @@ def is_tracing_enabled() -> bool:
 # Token estimation (rough: 1 token ≈ 4 chars of JSON)
 # ---------------------------------------------------------------------------
 
+import tiktoken
+_enc = tiktoken.get_encoding("cl100k_base")
+
 def _estimate_tokens(obj: Any) -> int:
+    """Rough token count using tiktoken (approximation for Gemini)."""
     try:
-        return max(1, len(json.dumps(obj, default=str)) // 4)
+        text = json.dumps(obj, default=str)
+        return max(1, len(_enc.encode(text)))
     except Exception:
         return 1
 
@@ -109,22 +143,25 @@ async def _log_run(
                 _ls_client.create_run(
                     id=run_id,
                     name=tool_name,
-                    run_type="tool",
+                    run_type="llm",  # Changed from tool to llm so LangSmith shows tokens
                     inputs=inputs,
                     project_name=_ls_project,
                     tags=["mcp", "jadx"],
-                    extra={
-                        "latency_ms": round(latency_ms, 2),
-                        "est_input_tokens": input_tokens,
-                        "est_output_tokens": output_tokens,
-                        "est_total_tokens": input_tokens + output_tokens,
-                    },
+                    extra={"latency_ms": round(latency_ms, 2)},
                 )
+                import datetime
                 _ls_client.update_run(
                     run_id=run_id,
                     outputs={"result": outputs} if not error else None,
                     error=error,
-                    end_time=time.time(),
+                    end_time=datetime.datetime.now(datetime.timezone.utc),
+                    extra={
+                        "metadata": {
+                            "prompt_tokens": input_tokens,
+                            "completion_tokens": output_tokens,
+                            "total_tokens": input_tokens + output_tokens,
+                        }
+                    }
                 )
             except Exception as e:
                 logger.debug("LangSmith: send failed (%s)", e)
@@ -157,12 +194,60 @@ def traced(fn: Callable) -> Callable:
         t0 = time.monotonic()
         error_msg: Optional[str] = None
         result: Any = None
+        
+        global _session_tokens, _daily_call_count
+        max_tokens = int(os.environ.get("MAX_DAILY_TOKENS", "240000"))
+        max_calls = int(os.environ.get("MAX_DAILY_CALLS", "18"))
+        
+        if _session_tokens > (max_tokens * 0.99):
+            return {"error": "QUOTA EXHAUSTED: You have reached 99% of your budget. All tool execution is blocked."}
+        
+        if _daily_call_count >= max_calls:
+            return {"error": f"QUOTA EXHAUSTED: You have reached the maximum daily API calls ({max_calls})."}
+
+        # Wait for rate limit if needed
+        await rate_limiter.acquire()
+        _daily_call_count += 1
 
         try:
             result = await fn(*args, **kwargs)
+            
+            # Post-check for tracking and 90% warning
+            out_tokens = _estimate_tokens(result)
+            _session_tokens += out_tokens
+            
+            if _session_tokens > (max_tokens * 0.90) and isinstance(result, dict):
+                warning = f"\n\n[CRITICAL SYSTEM WARNING: You have reached 90% of the user's daily token budget ({_session_tokens}/{max_tokens}). YOU MUST STOP ALL INVESTIGATION NOW. Immediately output a highly detailed summary of everything you have found so far so the user can copy/paste it into a new session.]"
+                if "code" in result:
+                    result["code"] = str(result["code"]) + warning
+                elif "result" in result:
+                    result["result"] = str(result["result"]) + warning
+                else:
+                    result["SYSTEM_WARNING"] = warning
+            elif _session_tokens > (max_tokens * 0.70) and getattr(wrapper, "_checkpoint_shown", False) is False and isinstance(result, dict):
+                wrapper._checkpoint_shown = True
+                warning = f"\n\n[CHECKPOINT: You've used 70% of your token budget ({_session_tokens}/{max_tokens}). Please call `add_investigation_note` for all open findings now, then I recommend starting a fresh Continue.dev session seeded with `get_investigation_notes()` output.]"
+                if "code" in result:
+                    result["code"] = str(result["code"]) + warning
+                elif "result" in result:
+                    result["result"] = str(result["result"]) + warning
+                else:
+                    result["SYSTEM_WARNING"] = warning
+                    
             return result
         except Exception as exc:
             error_msg = f"{type(exc).__name__}: {exc}"
+            
+            # If we hit a 429, register the penalty so we back off globally
+            exc_str = str(exc).lower()
+            if "429" in exc_str or "resource exhausted" in exc_str or "too many requests" in exc_str:
+                import re
+                # Try to find a retry delay like "54s" or "60 seconds"
+                match = re.search(r'(?:retry(?:delay)?|wait).*?(\d+)\s*(?:s|sec)', exc_str)
+                delay = int(match.group(1)) if match else 60
+                rate_limiter.register_429(delay)
+                logger.warning(f"Rate limit hit! Forcing global backoff for {delay} seconds.")
+                
             raise
         finally:
             latency_ms = (time.monotonic() - t0) * 1000
@@ -243,7 +328,7 @@ class TracedSession:
                     run_id=self._run_id,
                     outputs={"latency_ms": round(latency, 2)},
                     error=error,
-                    end_time=time.time(),
+                    end_time=datetime.datetime.now(datetime.timezone.utc),
                 )
             except Exception as e:
                 logger.debug("TracedSession end failed: %s", e)

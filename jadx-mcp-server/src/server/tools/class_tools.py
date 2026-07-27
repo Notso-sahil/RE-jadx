@@ -12,6 +12,8 @@ License: See LICENSE file
 from src.server.config import get_from_jadx, get_from_jadx_cached, post_to_jadx
 from src.PaginationUtils import PaginationUtils
 
+_outline_fetched: set[str] = set()
+
 
 async def fetch_current_class() -> dict:
     """
@@ -39,12 +41,13 @@ async def get_selected_text() -> dict:
     return await get_from_jadx("selected-text")
 
 
-async def get_class_source(class_name: str) -> dict:
+async def get_class_source(class_name: str, force: bool = False) -> dict:
     """
     Fetch the Java source of a specific class.
 
     Args:
         class_name: Fully qualified class name (e.g., com.example.MainActivity)
+        force: Bypass the outline-before-source rule
 
     Returns:
         dict: Contains complete decompiled Java source code for the class
@@ -52,7 +55,24 @@ async def get_class_source(class_name: str) -> dict:
     MCP Tool: get_class_source
     Description: Retrieves decompiled Java source for any class in the APK
     """
-    return await get_from_jadx_cached("class-source", {"class_name": class_name})
+    global _outline_fetched
+    if class_name not in _outline_fetched and not force:
+        return {
+            "error": "OUTLINE_REQUIRED",
+            "message": f"Call jadx_get_class_outline('{class_name}') first. Pass force=true only if the outline was already reviewed this session to bypass this check."
+        }
+
+    result = await get_from_jadx_cached("class-source", {"class_name": class_name})
+    
+    code = result.get("code", "")
+    if code:
+        lines = code.split("\n")
+        if len(lines) > 500:
+            truncated_code = "\n".join(lines[:500])
+            warning = f"\n\n// [SYSTEM WARNING]: Class exceeds 500 lines (Total: {len(lines)}). It has been TRUNCATED. To explore further, use `jadx_get_class_outline` or `jadx_search_method_by_name`."
+            result["code"] = truncated_code + warning
+            
+    return result
 
 
 async def get_all_classes(offset: int = 0, count: int = 0) -> dict:

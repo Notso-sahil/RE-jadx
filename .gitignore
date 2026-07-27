@@ -1,1 +1,4 @@
 .env
+jadx-mcp-server/jadx_fts_index.db
+.continue/
+__pycache__/

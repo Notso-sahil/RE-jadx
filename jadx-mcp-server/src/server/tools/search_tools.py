@@ -295,3 +295,47 @@ async def search_classes_by_keyword(
         except asyncio.CancelledError:
             pass
     return result
+
+async def jadx_search_methods(query: str, limit: int = 10) -> dict:
+    """
+    Search for methods using FTS5 (local SQLite index).
+    Use this FIRST to locate relevant code before listing classes.
+    """
+    from src.server.index_builder import ensure_index_built, get_connection
+    await ensure_index_built()
+    
+    conn = get_connection()
+    try:
+        # Simple FTS match
+        cursor = conn.execute(
+            "SELECT class_name, method_sig, snippet FROM methods WHERE methods MATCH ? ORDER BY rank LIMIT ?",
+            (query, limit)
+        )
+        results = [{"class_name": row[0], "method_sig": row[1], "snippet": row[2]} for row in cursor.fetchall()]
+        return {"results": results, "count": len(results)}
+    except Exception as e:
+        return {"error": str(e)}
+    finally:
+        conn.close()
+
+async def jadx_search_strings(query: str, limit: int = 20) -> dict:
+    """
+    Search for strings using FTS5 (local SQLite index).
+    Use this FIRST to locate relevant strings before listing classes.
+    """
+    from src.server.index_builder import ensure_index_built, get_connection
+    await ensure_index_built()
+    
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            "SELECT value, location FROM strings WHERE strings MATCH ? ORDER BY rank LIMIT ?",
+            (query, limit)
+        )
+        results = [{"value": row[0], "location": row[1]} for row in cursor.fetchall()]
+        return {"results": results, "count": len(results)}
+    except Exception as e:
+        return {"error": str(e)}
+    finally:
+        conn.close()
+

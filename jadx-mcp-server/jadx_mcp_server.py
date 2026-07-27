@@ -14,6 +14,19 @@ import logging
 import os
 import sys
 
+env_path = os.path.join(os.path.dirname(__file__), ".env")
+if os.path.exists(env_path):
+    with open(env_path, "r") as f:
+        for line in f:
+            line = line.strip()
+            if "=" in line and not line.startswith("#"):
+                k, v = line.split("=", 1)
+                os.environ[k.strip()] = v.strip()
+
+# Force LangSmith tracing on globally if the key exists
+if os.environ.get("LANGSMITH_API_KEY"):
+    os.environ["LANGSMITH_TRACING"] = "true"
+
 # ---------------------------------------------------------------------------
 # Sanitise proxy-related environment variables BEFORE any library reads them.
 #
@@ -62,7 +75,8 @@ from src.server.tools.class_tools import (
     get_package_tree, get_cache_stats, clear_cache
 )
 from src.server.tools.search_tools import (
-    get_method_by_name, search_method_by_name, search_classes_by_keyword
+    get_method_by_name, search_method_by_name, search_classes_by_keyword,
+    jadx_search_methods, jadx_search_strings
 )
 from src.server.tools.resource_tools import (
     get_manifest_component, get_android_manifest, get_strings, get_all_resource_file_names,
@@ -87,6 +101,8 @@ from src.server.tool_profiles import (
     apply_profile, get_active_profile, PROFILE_DESCRIPTIONS,
     AVAILABLE_PROFILES, PROFILE_ACTIVE_TAGS
 )
+from src.server.tools import investigation_tools
+from src.server import notes_store
 from src.server.tracing import _init_langsmith, traced, get_call_stats, is_tracing_enabled
 
 # Initialise optional LangSmith tracing (graceful no-op if key missing)
@@ -131,9 +147,9 @@ async def get_all_classes(offset: int = 0, count: int = 0) -> dict:
 
 @mcp.tool(tags=["analysis"])
 @traced
-async def get_class_source(class_name: str) -> dict:
-    """Fetch the Java source of a specific class."""
-    return await tools.class_tools.get_class_source(class_name)
+async def get_class_source(class_name: str, force: bool = False) -> dict:
+    """Fetch the Java source of a specific class. Pass force=true to bypass the outline check."""
+    return await tools.class_tools.get_class_source(class_name, force)
 
 
 @mcp.tool(tags=["analysis"])
@@ -166,6 +182,31 @@ async def search_classes_by_keyword(
     return await tools.search_tools.search_classes_by_keyword(
         search_term, package, search_in, offset, count, report_progress=report_progress
     )
+
+
+@mcp.tool(tags=["analysis"])
+@traced
+async def search_methods(query: str, limit: int = 10) -> dict:
+    """Search for methods using FTS5 (local SQLite index). Use this FIRST to locate relevant code before listing classes."""
+    return await tools.search_tools.jadx_search_methods(query, limit)
+
+
+@mcp.tool(tags=["analysis"])
+@traced
+async def search_strings(query: str, limit: int = 20) -> dict:
+    """Search for strings using FTS5 (local SQLite index). Use this FIRST to locate relevant strings before listing classes."""
+    return await tools.search_tools.jadx_search_strings(query, limit)
+
+
+@mcp.tool(tags=["analysis", "discovery"])
+@traced
+async def investigate_apk(focus: str) -> dict:
+    """
+    Runs a deterministic server-side sweep of the APK for a given focus area.
+    This saves multiple LLM round-trips by bundling the data into one payload.
+    focus must be one of: "network", "crypto", "permissions", "obfuscation"
+    """
+    return await investigation_tools.jadx_investigate_apk(focus)
 
 
 @mcp.tool(tags=["analysis"])
@@ -415,6 +456,20 @@ async def clear_all_analyses() -> dict:
     """
     from src.server.tools import memory_tools as _mem
     return await _mem.clear_all_analyses()
+
+
+@mcp.tool(tags=["core", "memory"])
+@traced
+async def add_investigation_note(class_name: str, finding: str, suspicious: bool) -> dict:
+    """Add a permanent note about a finding for the current APK."""
+    return notes_store.jadx_add_investigation_note(class_name, finding, suspicious)
+
+
+@mcp.tool(tags=["core", "memory"])
+@traced
+async def get_investigation_notes() -> dict:
+    """Retrieve all previously stored investigation notes for this APK."""
+    return notes_store.jadx_get_investigation_notes()
 
 
 # ---------------------------------------------------------------------------
