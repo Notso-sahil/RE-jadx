@@ -1,4 +1,4 @@
-# JADX AI Agent: Zero-to-Hero Setup Guide
+# JADX AI Agent: Setup Guide
 
 This guide covers how to set up the JADX AI Agent on a completely fresh machine. This system bridges an AI coding assistant with JADX, allowing the AI to autonomously reverse-engineer Android APKs.
 
