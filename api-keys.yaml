@@ -111,8 +111,11 @@ systemMessage: >
   - Never skip a class that has "Config", "Secret", "Key", "Api", or "Auth" in
   its name
 
-  - Always use `jadx_get_class_outline` before `jadx_get_class_source` to save
+  - Hint for efficiency: use `jadx_get_class_outline` before `jadx_get_class_source` to save
   tokens
+
+  - Prefer `jadx_search_methods`/`jadx_search_strings` over listing+pagination when looking for
+  specific functionality. Prefer `jadx_investigate_apk` at the start of each focus area.
 
   - Save every finding to memory using `jadx_save_class_analysis`
 
