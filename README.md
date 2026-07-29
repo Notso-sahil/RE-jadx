@@ -106,6 +106,8 @@ mcpServers:
     args:
       - C:\path\to\jadx-mcp-server\jadx_mcp_server.py
 ```
+
+Also change the path in start_jadx_mcp.py
 *Note: Ensure your `command` points to the `python` executable inside the `.venv` folder you created in Step 3.*
 
 ---
@@ -128,4 +130,4 @@ Because Language Models are trained on standard programming tutorials, they ofte
 ## 7. The Ultimate Starter Prompt
 Once your APK is open in JADX, and Continue.dev is connected to Vertex AI, paste this exact prompt into the chat to begin:
 
-> *Begin the forensic analysis on the loaded APK using your JADX MCP tools. I want you to find the attacker's database URL or any API keys. If anything is encrypted, write a Python script to decrypt it based on the Java code. Remember: You are strictly forbidden from running standard terminal commands like `find` or `grep`. You must exclusively use your built-in JADX tools (like `jadx_investigate_apk` and `jadx_search_strings`) to explore the APK.*
+Begin the forensic analysis on the loaded APK using your JADX MCP tools. I want you to find the attacker's database URL or any API keys. If anything is encrypted, write a Python script to decrypt it based on the Java code. Remember: You are strictly forbidden from running standard terminal commands like `find` or `grep`. You must exclusively use your built-in JADX tools (like `jadx_investigate_apk` and `jadx_search_strings`) to explore the APK.
